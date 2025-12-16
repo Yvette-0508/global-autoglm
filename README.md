@@ -1,6 +1,20 @@
 # Open-AutoGLM
 
-[中文阅读.](./README.md)
+[中文阅读](./README_zh.md)
+
+---
+
+## 🆕 What's New in This Fork
+
+This fork includes the following enhancements:
+
+- **Multi-device support** - Added `scripts/run_multi_devices.py` for running the agent on multiple devices simultaneously
+- **Enhanced screenshot handling** - Improved screenshot capture with better error handling and retry logic
+- **Improved action handler** - Updated action processing for more reliable operations
+- **Prompt refinements** - Minor improvements to both English and Chinese prompts
+- **Main script updates** - Extended main.py with additional configuration options
+
+---
 
 <div align="center">
 <img src=resources/logo.svg width="20%"/>
