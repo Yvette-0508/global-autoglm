@@ -72,7 +72,7 @@ Your output should STRICTLY follow the format:
 
 
 REMEMBER:
-- Think before you act: Always analyze the current UI and the best course of action before executing any step, and output in <think> part.
+- Think before you act: Analyze briefly (1-2 sentences) - state only the key judgment (where you are, what to do, why), don't repeat screen details.
 - Only ONE LINE of action in <answer> part per response: Each step must contain exactly one line of executable code.
 - Generate execution code strictly according to format requirements.
 """

@@ -47,10 +47,13 @@ class ActionHandler:
         device_id: str | None = None,
         confirmation_callback: Callable[[str], bool] | None = None,
         takeover_callback: Callable[[str], None] | None = None,
+        adb_delay: float = 1.0,
     ):
         self.device_id = device_id
         self.confirmation_callback = confirmation_callback or self._default_confirmation
         self.takeover_callback = takeover_callback or self._default_takeover
+        # Global post-action delay for stability. Lower = faster, but may misclick on slow phones.
+        self.adb_delay = max(0.0, float(adb_delay))
 
     def execute(
         self, action: dict[str, Any], screen_width: int, screen_height: int
@@ -153,7 +156,7 @@ class ActionHandler:
                     message="User cancelled sensitive operation",
                 )
 
-        tap(x, y, self.device_id)
+        tap(x, y, self.device_id, delay=self.adb_delay)
         return ActionResult(True, False)
 
     def _handle_type(self, action: dict, width: int, height: int) -> ActionResult:
@@ -162,18 +165,18 @@ class ActionHandler:
 
         # Switch to ADB keyboard
         original_ime = detect_and_set_adb_keyboard(self.device_id)
-        time.sleep(1.0)
+        time.sleep(self.adb_delay)
 
         # Clear existing text and type new text
         clear_text(self.device_id)
-        time.sleep(1.0)
+        time.sleep(self.adb_delay)
 
         type_text(text, self.device_id)
-        time.sleep(1.0)
+        time.sleep(self.adb_delay)
 
         # Restore original keyboard
         restore_keyboard(original_ime, self.device_id)
-        time.sleep(1.0)
+        time.sleep(self.adb_delay)
 
         return ActionResult(True, False)
 
@@ -188,17 +191,24 @@ class ActionHandler:
         start_x, start_y = self._convert_relative_to_absolute(start, width, height)
         end_x, end_y = self._convert_relative_to_absolute(end, width, height)
 
-        swipe(start_x, start_y, end_x, end_y, device_id=self.device_id)
+        swipe(
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            device_id=self.device_id,
+            delay=self.adb_delay,
+        )
         return ActionResult(True, False)
 
     def _handle_back(self, action: dict, width: int, height: int) -> ActionResult:
         """Handle back button action."""
-        back(self.device_id)
+        back(self.device_id, delay=self.adb_delay)
         return ActionResult(True, False)
 
     def _handle_home(self, action: dict, width: int, height: int) -> ActionResult:
         """Handle home button action."""
-        home(self.device_id)
+        home(self.device_id, delay=self.adb_delay)
         return ActionResult(True, False)
 
     def _handle_double_tap(self, action: dict, width: int, height: int) -> ActionResult:
@@ -208,7 +218,7 @@ class ActionHandler:
             return ActionResult(False, False, "No element coordinates")
 
         x, y = self._convert_relative_to_absolute(element, width, height)
-        double_tap(x, y, self.device_id)
+        double_tap(x, y, self.device_id, delay=self.adb_delay)
         return ActionResult(True, False)
 
     def _handle_long_press(self, action: dict, width: int, height: int) -> ActionResult:
@@ -218,7 +228,7 @@ class ActionHandler:
             return ActionResult(False, False, "No element coordinates")
 
         x, y = self._convert_relative_to_absolute(element, width, height)
-        long_press(x, y, device_id=self.device_id)
+        long_press(x, y, device_id=self.device_id, delay=self.adb_delay)
         return ActionResult(True, False)
 
     def _handle_wait(self, action: dict, width: int, height: int) -> ActionResult:

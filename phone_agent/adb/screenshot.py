@@ -37,11 +37,40 @@ def get_screenshot(device_id: str | None = None, timeout: int = 10) -> Screensho
         If the screenshot fails (e.g., on sensitive screens like payment pages),
         a black fallback image is returned with is_sensitive=True.
     """
-    temp_path = os.path.join(tempfile.gettempdir(), f"screenshot_{uuid.uuid4()}.png")
     adb_prefix = _get_adb_prefix(device_id)
 
+    # Fast path: stream PNG bytes via exec-out (avoids /sdcard write + pull).
+    # This is typically much faster, especially when controlling multiple devices.
     try:
-        # Execute screenshot command
+        result = subprocess.run(
+            adb_prefix + ["exec-out", "screencap", "-p"],
+            capture_output=True,
+            timeout=timeout,
+        )
+
+        if result.returncode == 0 and result.stdout:
+            try:
+                img = Image.open(BytesIO(result.stdout))
+                width, height = img.size
+                buffered = BytesIO()
+                img.save(buffered, format="PNG")
+                base64_data = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                return Screenshot(
+                    base64_data=base64_data,
+                    width=width,
+                    height=height,
+                    is_sensitive=False,
+                )
+            except Exception:
+                # Fall through to legacy path below
+                pass
+    except Exception:
+        # Fall through to legacy path below
+        pass
+
+    # Legacy fallback: save to /sdcard then pull.
+    temp_path = os.path.join(tempfile.gettempdir(), f"screenshot_{uuid.uuid4()}.png")
+    try:
         result = subprocess.run(
             adb_prefix + ["shell", "screencap", "-p", "/sdcard/tmp.png"],
             capture_output=True,
@@ -49,12 +78,10 @@ def get_screenshot(device_id: str | None = None, timeout: int = 10) -> Screensho
             timeout=timeout,
         )
 
-        # Check for screenshot failure (sensitive screen)
-        output = result.stdout + result.stderr
+        output = (result.stdout or "") + (result.stderr or "")
         if "Status: -1" in output or "Failed" in output:
             return _create_fallback_screenshot(is_sensitive=True)
 
-        # Pull screenshot to local temp path
         subprocess.run(
             adb_prefix + ["pull", "/sdcard/tmp.png", temp_path],
             capture_output=True,
@@ -65,7 +92,6 @@ def get_screenshot(device_id: str | None = None, timeout: int = 10) -> Screensho
         if not os.path.exists(temp_path):
             return _create_fallback_screenshot(is_sensitive=False)
 
-        # Read and encode image
         img = Image.open(temp_path)
         width, height = img.size
 
@@ -73,13 +99,14 @@ def get_screenshot(device_id: str | None = None, timeout: int = 10) -> Screensho
         img.save(buffered, format="PNG")
         base64_data = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-        # Cleanup
-        os.remove(temp_path)
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
 
         return Screenshot(
             base64_data=base64_data, width=width, height=height, is_sensitive=False
         )
-
     except Exception as e:
         print(f"Screenshot error: {e}")
         return _create_fallback_screenshot(is_sensitive=False)

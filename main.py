@@ -11,6 +11,8 @@ Environment Variables:
     PHONE_AGENT_API_KEY: API key for model authentication (default: EMPTY)
     PHONE_AGENT_MAX_STEPS: Maximum steps per task (default: 100)
     PHONE_AGENT_DEVICE_ID: ADB device ID for multi-device setups
+    PHONE_AGENT_ADB_DELAY: Post-action delay in seconds (default: 1.0)
+    PHONE_AGENT_SCREENSHOT_TIMEOUT: Screenshot timeout in seconds (default: 10)
 """
 
 import argparse
@@ -29,7 +31,7 @@ from phone_agent.config.apps import list_supported_apps
 from phone_agent.model import ModelConfig
 
 
-def check_system_requirements() -> bool:
+def check_system_requirements(device_id=None) -> bool:
     """
     Check system requirements before running the agent.
 
@@ -45,6 +47,7 @@ def check_system_requirements() -> bool:
     print("-" * 50)
 
     all_passed = True
+    selected_device_id = None
 
     # Check 1: ADB installed
     print("1. Checking ADB installation...", end=" ")
@@ -106,7 +109,31 @@ def check_system_requirements() -> bool:
             all_passed = False
         else:
             device_ids = [d.split("\t")[0] for d in devices]
-            print(f"✅ OK ({len(devices)} device(s): {', '.join(device_ids)})")
+            if device_id:
+                if device_id not in device_ids:
+                    print("❌ FAILED")
+                    print(f"   Error: Specified device_id '{device_id}' is not connected/authorized.")
+                    print(f"   Connected devices: {', '.join(device_ids)}")
+                    print("   Solution:")
+                    print("     1. Reconnect the device and accept the USB debugging prompt")
+                    print("     2. Or choose one via: python main.py --list-devices")
+                    all_passed = False
+                else:
+                    selected_device_id = device_id
+                    print(f"✅ OK (using device: {selected_device_id})")
+            else:
+                # If multiple devices are connected, require explicit selection to avoid adb ambiguity.
+                if len(device_ids) > 1:
+                    print("❌ FAILED")
+                    print("   Error: Multiple devices/emulators are connected; ADB commands are ambiguous.")
+                    print(f"   Connected devices: {', '.join(device_ids)}")
+                    print("   Solution:")
+                    print("     1. Re-run with: python main.py --device-id <device_id>")
+                    print("     2. Or disconnect/stop extra devices/emulators")
+                    all_passed = False
+                else:
+                    selected_device_id = device_ids[0]
+                    print(f"✅ OK (1 device: {selected_device_id})")
     except subprocess.TimeoutExpired:
         print("❌ FAILED")
         print("   Error: ADB command timed out.")
@@ -126,28 +153,46 @@ def check_system_requirements() -> bool:
     print("3. Checking ADB Keyboard...", end=" ")
     try:
         result = subprocess.run(
-            ["adb", "shell", "ime", "list", "-s"],
+            ["adb", "-s", selected_device_id, "shell", "ime", "list", "-s"],
             capture_output=True,
             text=True,
             timeout=10,
         )
-        ime_list = result.stdout.strip()
-
-        if "com.android.adbkeyboard/.AdbIME" in ime_list:
-            print("✅ OK")
-        else:
+        if result.returncode != 0:
             print("❌ FAILED")
-            print("   Error: ADB Keyboard is not installed on the device.")
+            err = (result.stderr or "").strip()
+            out = (result.stdout or "").strip()
+            print("   Error: ADB command failed while listing IMEs.")
+            if err:
+                print(f"   Details: {err}")
+            elif out:
+                print(f"   Details: {out}")
+            else:
+                print("   Details: (no output)")
             print("   Solution:")
-            print("     1. Download ADB Keyboard APK from:")
-            print(
-                "        https://github.com/senzhk/ADBKeyBoard/blob/master/ADBKeyboard.apk"
-            )
-            print("     2. Install it on your device: adb install ADBKeyboard.apk")
-            print(
-                "     3. Enable it in Settings > System > Languages & Input > Virtual Keyboard"
-            )
+            print("     1. Ensure the device is connected and authorized")
+            print("     2. If multiple devices are connected, pass --device-id <device_id>")
             all_passed = False
+        else:
+            ime_list = (result.stdout or "").strip()
+
+            if "com.android.adbkeyboard/.AdbIME" in ime_list:
+                print("✅ OK")
+            else:
+                print("❌ FAILED")
+                print("   Error: ADB Keyboard IME not found in the device IME list.")
+                print(f"   Device: {selected_device_id}")
+                print("   Solution:")
+                print("     1. Download ADB Keyboard APK from:")
+                print(
+                    "        https://github.com/senzhk/ADBKeyBoard/blob/master/ADBKeyboard.apk"
+                )
+                print("     2. Install it on your device: adb install ADBKeyboard.apk")
+                print(
+                    "     3. Enable it in Settings > System > Languages & Input > Virtual Keyboard"
+                )
+                print("     4. Verify via: adb -s <device_id> shell ime list -s")
+                all_passed = False
     except subprocess.TimeoutExpired:
         print("❌ FAILED")
         print("   Error: ADB command timed out.")
@@ -356,6 +401,21 @@ Examples:
         "--quiet", "-q", action="store_true", help="Suppress verbose output"
     )
 
+    # Tuning knobs for speed/stability tradeoff
+    parser.add_argument(
+        "--adb-delay",
+        type=float,
+        default=float(os.getenv("PHONE_AGENT_ADB_DELAY", "1.0")),
+        help="Post-action delay in seconds (default: 1.0)",
+    )
+
+    parser.add_argument(
+        "--screenshot-timeout",
+        type=int,
+        default=int(os.getenv("PHONE_AGENT_SCREENSHOT_TIMEOUT", "10")),
+        help="Screenshot timeout in seconds (default: 10)",
+    )
+
     parser.add_argument(
         "--list-apps", action="store_true", help="List supported apps and exit"
     )
@@ -464,7 +524,7 @@ def main():
         return
 
     # Run system requirements check before proceeding
-    if not check_system_requirements():
+    if not check_system_requirements(args.device_id):
         sys.exit(1)
 
     # Check model API connectivity and model availability
@@ -484,6 +544,8 @@ def main():
         device_id=args.device_id,
         verbose=not args.quiet,
         lang=args.lang,
+        adb_delay=args.adb_delay,
+        screenshot_timeout=args.screenshot_timeout,
     )
 
     # Create agent

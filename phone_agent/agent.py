@@ -22,6 +22,9 @@ class AgentConfig:
     lang: str = "cn"
     system_prompt: str | None = None
     verbose: bool = True
+    # Tuning knobs for speed/stability tradeoff
+    adb_delay: float = 1.0
+    screenshot_timeout: int = 10
 
     def __post_init__(self):
         if self.system_prompt is None:
@@ -76,6 +79,7 @@ class PhoneAgent:
             device_id=self.agent_config.device_id,
             confirmation_callback=confirmation_callback,
             takeover_callback=takeover_callback,
+            adb_delay=self.agent_config.adb_delay,
         )
 
         self._context: list[dict[str, Any]] = []
@@ -140,7 +144,9 @@ class PhoneAgent:
         self._step_count += 1
 
         # Capture current screen state
-        screenshot = get_screenshot(self.agent_config.device_id)
+        screenshot = get_screenshot(
+            self.agent_config.device_id, timeout=self.agent_config.screenshot_timeout
+        )
         current_app = get_current_app(self.agent_config.device_id)
 
         # Build messages
